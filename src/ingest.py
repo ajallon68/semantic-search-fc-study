@@ -1,31 +1,58 @@
 import os
 from pathlib import Path
+from typing import Literal
 from uuid import NAMESPACE_URL, uuid5
 
+from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_openai import OpenAIEmbeddings
 from langchain_postgres import PGVector
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from dotenv import load_dotenv
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 load_dotenv(PROJECT_ROOT / ".env")
 
+Provider = Literal["google", "openai"]
 
-def required_env(name: str) -> str:
-    value = os.getenv(name, "").strip()
-    if not value:
+
+def get_provider() -> Provider:
+    google_key = os.getenv("GOOGLE_API_KEY", "").strip()
+    openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+
+    if google_key and openai_key:
         raise ValueError(
-            f"A variável {name} não está configurada. "
-            "Copie .env.example para .env e informe os valores necessários."
+            "Configure apenas uma chave de provedor: GOOGLE_API_KEY ou "
+            "OPENAI_API_KEY, não ambas."
         )
-    return value
+    if openai_key:
+        return "openai"
+    if google_key:
+        return "google"
+    raise ValueError(
+        "Configure GOOGLE_API_KEY ou OPENAI_API_KEY no arquivo .env."
+    )
 
 
-def get_pdf_path() -> Path:
-    value = os.getenv("PDF_PATH", "document.pdf").strip() or "document.pdf"
-    path = Path(value)
-    return path if path.is_absolute() else PROJECT_ROOT / path
+def create_embeddings(provider: Provider):
+    if provider == "openai":
+        return OpenAIEmbeddings(
+            model=os.getenv("OPENAI_EMBEDDING_MODEL", "").strip()
+            or "text-embedding-3-small",
+            api_key=os.getenv("OPENAI_API_KEY", "").strip(),
+        )
+    return GoogleGenerativeAIEmbeddings(
+        model=os.getenv("GOOGLE_EMBEDDING_MODEL", "").strip()
+        or "models/gemini-embedding-001",
+        google_api_key=os.getenv("GOOGLE_API_KEY", "").strip(),
+    )
+
+
+def get_collection_name(provider: Provider) -> str:
+    base_name = (
+        os.getenv("PG_VECTOR_COLLECTION_NAME", "").strip() or "pdf_documents"
+    )
+    return f"{base_name}_openai" if provider == "openai" else base_name
 
 
 def get_database_url() -> str:
@@ -35,15 +62,10 @@ def get_database_url() -> str:
     )
 
 
-def get_collection_name() -> str:
-    return os.getenv("PG_VECTOR_COLLECTION_NAME", "").strip() or "pdf_documents"
-
-
-def get_embedding_model() -> str:
-    return (
-        os.getenv("GOOGLE_EMBEDDING_MODEL", "").strip()
-        or "models/gemini-embedding-001"
-    )
+def get_pdf_path() -> Path:
+    value = os.getenv("PDF_PATH", "document.pdf").strip() or "document.pdf"
+    path = Path(value)
+    return path if path.is_absolute() else PROJECT_ROOT / path
 
 
 def ingest_pdf() -> int:
@@ -53,7 +75,7 @@ def ingest_pdf() -> int:
     if pdf_path.suffix.lower() != ".pdf":
         raise ValueError(f"O arquivo informado não é um PDF: {pdf_path}")
 
-    api_key = required_env("GOOGLE_API_KEY")
+    provider = get_provider()
     pages = PyPDFLoader(str(pdf_path)).load()
     if not pages or not any(page.page_content.strip() for page in pages):
         raise ValueError(f"O PDF não contém texto para indexar: {pdf_path}")
@@ -66,13 +88,9 @@ def ingest_pdf() -> int:
     if not chunks:
         raise ValueError(f"Não foi possível gerar chunks a partir do PDF: {pdf_path}")
 
-    embeddings = GoogleGenerativeAIEmbeddings(
-        model=get_embedding_model(),
-        google_api_key=api_key,
-    )
     vector_store = PGVector(
-        embeddings=embeddings,
-        collection_name=get_collection_name(),
+        embeddings=create_embeddings(provider),
+        collection_name=get_collection_name(provider),
         connection=get_database_url(),
         use_jsonb=True,
     )

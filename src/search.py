@@ -1,25 +1,75 @@
 import os
 from pathlib import Path
+from typing import Literal
 
 from langchain_core.documents import Document
-from langchain_google_genai import ChatGoogleGenerativeAI, GoogleGenerativeAIEmbeddings
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnableLambda
+from langchain_google_genai import (
+    ChatGoogleGenerativeAI,
+    GoogleGenerativeAIEmbeddings,
+)
+from langchain_openai import ChatOpenAI, OpenAIEmbeddings
 from langchain_postgres import PGVector
 from dotenv import load_dotenv
 
-PROJECT_ROOT = Path(__file__).resolve().parents[1]
-load_dotenv(PROJECT_ROOT / ".env")
+load_dotenv(Path(__file__).resolve().parents[1] / ".env")
+
+Provider = Literal["google", "openai"]
 
 
-def required_env(name: str) -> str:
-    value = os.getenv(name, "").strip()
-    if not value:
+def get_provider() -> Provider:
+    google_key = os.getenv("GOOGLE_API_KEY", "").strip()
+    openai_key = os.getenv("OPENAI_API_KEY", "").strip()
+
+    if google_key and openai_key:
         raise ValueError(
-            f"A variável {name} não está configurada. "
-            "Copie .env.example para .env e informe os valores necessários."
+            "Configure apenas uma chave de provedor: GOOGLE_API_KEY ou "
+            "OPENAI_API_KEY, não ambas."
         )
-    return value
+    if openai_key:
+        return "openai"
+    if google_key:
+        return "google"
+    raise ValueError(
+        "Configure GOOGLE_API_KEY ou OPENAI_API_KEY no arquivo .env."
+    )
+
+
+def create_embeddings(provider: Provider):
+    if provider == "openai":
+        return OpenAIEmbeddings(
+            model=os.getenv("OPENAI_EMBEDDING_MODEL", "").strip()
+            or "text-embedding-3-small",
+            api_key=os.getenv("OPENAI_API_KEY", "").strip(),
+        )
+    return GoogleGenerativeAIEmbeddings(
+        model=os.getenv("GOOGLE_EMBEDDING_MODEL", "").strip()
+        or "models/gemini-embedding-001",
+        google_api_key=os.getenv("GOOGLE_API_KEY", "").strip(),
+    )
+
+
+def create_chat_model(provider: Provider):
+    if provider == "openai":
+        return ChatOpenAI(
+            model=os.getenv("OPENAI_CHAT_MODEL", "").strip() or "gpt-4o-mini",
+            api_key=os.getenv("OPENAI_API_KEY", "").strip(),
+            temperature=0,
+        )
+    return ChatGoogleGenerativeAI(
+        model=os.getenv("GOOGLE_CHAT_MODEL", "").strip()
+        or "gemini-3.5-flash-lite",
+        google_api_key=os.getenv("GOOGLE_API_KEY", "").strip(),
+        temperature=0,
+    )
+
+
+def get_collection_name(provider: Provider) -> str:
+    base_name = (
+        os.getenv("PG_VECTOR_COLLECTION_NAME", "").strip() or "pdf_documents"
+    )
+    return f"{base_name}_openai" if provider == "openai" else base_name
 
 
 def get_database_url() -> str:
@@ -28,20 +78,6 @@ def get_database_url() -> str:
         or "postgresql+psycopg://postgres:postgres@localhost:5433/rag"
     )
 
-
-def get_collection_name() -> str:
-    return os.getenv("PG_VECTOR_COLLECTION_NAME", "").strip() or "pdf_documents"
-
-
-def get_embedding_model() -> str:
-    return (
-        os.getenv("GOOGLE_EMBEDDING_MODEL", "").strip()
-        or "models/gemini-embedding-001"
-    )
-
-
-def get_chat_model() -> str:
-    return os.getenv("GOOGLE_CHAT_MODEL", "").strip() or "gemini-3.5-flash-lite"
 
 FALLBACK_ANSWER = "Não tenho informações necessárias para responder sua pergunta."
 RESULTS_COUNT = 10
@@ -74,14 +110,10 @@ RESPONDA A "PERGUNTA DO USUÁRIO"
 """
 
 
-def _create_vector_store(api_key: str) -> PGVector:
-    embeddings = GoogleGenerativeAIEmbeddings(
-        model=get_embedding_model(),
-        google_api_key=api_key,
-    )
+def _create_vector_store(provider: Provider) -> PGVector:
     return PGVector(
-        embeddings=embeddings,
-        collection_name=get_collection_name(),
+        embeddings=create_embeddings(provider),
+        collection_name=get_collection_name(provider),
         connection=get_database_url(),
         use_jsonb=True,
     )
@@ -102,7 +134,7 @@ def _search_documents(
 def search_documents(
     question: str, k: int = RESULTS_COUNT
 ) -> list[tuple[Document, float]]:
-    vector_store = _create_vector_store(required_env("GOOGLE_API_KEY"))
+    vector_store = _create_vector_store(get_provider())
     return _search_documents(vector_store, question, k)
 
 
@@ -116,13 +148,9 @@ def _format_context(results: list[tuple[Document, float]]) -> str:
 
 
 def search_prompt(question: str | None = None):
-    api_key = required_env("GOOGLE_API_KEY")
-    vector_store = _create_vector_store(api_key)
-    llm = ChatGoogleGenerativeAI(
-        model=get_chat_model(),
-        google_api_key=api_key,
-        temperature=0,
-    )
+    provider = get_provider()
+    vector_store = _create_vector_store(provider)
+    llm = create_chat_model(provider)
 
     def answer(inputs: dict[str, str]) -> str:
         user_question = inputs.get("question", "").strip()
