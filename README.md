@@ -1,155 +1,130 @@
-# Ingestão e Busca Semântica com LangChain e Postgres
+# Ingestão e busca semântica de PDFs
 
-## Objetivo
+Aplicação de perguntas e respostas sobre o conteúdo de um PDF. O texto é
+dividido em trechos, convertido em embeddings com a API do Google Gemini e
+armazenado no PostgreSQL com a extensão pgvector. As perguntas são respondidas
+com base nos trechos recuperados do documento.
 
-Você deve entregar um software capaz de:
+## Scripts
 
-- Ingestão: Ler um arquivo PDF e salvar suas informações em um banco de dados PostgreSQL com extensão pgVector.
-- Busca: Permitir que o usuário faça perguntas via linha de comando (CLI) e receba respostas baseadas apenas no conteúdo do PDF.
+- `src/ingest.py`: extrai o texto do PDF, divide-o em trechos e salva os
+  embeddings no PostgreSQL.
+- `src/search.py`: consulta os trechos mais relevantes e prepara uma resposta
+  com o modelo Gemini. Também oferece `search_documents(question, k=10)` para
+  fazer buscas sem gerar uma resposta.
+- `src/chat.py`: inicia uma interface de linha de comando para fazer perguntas
+  sobre o documento.
 
-## Exemplo no CLI
+## Estrutura do projeto
 
-Faça sua pergunta:
-
-```
-PERGUNTA: Qual o faturamento da Empresa SuperTechIABrazil?
-RESPOSTA: O faturamento foi de 10 milhões de reais.
-
----
-
-Perguntas fora do contexto:
-
-PERGUNTA: Quantos clientes temos em 2024?
-RESPOSTA: Não tenho informações necessárias para responder sua pergunta.
-```
-
-## Tecnologias obrigatórias
-
-- Linguagem: Python
-- Framework: LangChain
-- Banco de dados: PostgreSQL + pgVector
-- Execução do banco de dados: Docker & Docker Compose (docker-compose fornecido no repositório de exemplo)
-
-## Pacotes recomendados
-
-- Split: `from langchain_text_splitters import RecursiveCharacterTextSplitter`
-- Embeddings (OpenAI): `from langchain_openai import OpenAIEmbeddings`
-- Embeddings (Gemini): `from langchain_google_genai import GoogleGenerativeAIEmbeddings`
-- PDF: `from langchain_community.document_loaders import PyPDFLoader`
-- Ingestão: `from langchain_postgres import PGVector`
-- Busca: `similarity_search_with_score(query, k=10)`
-
-## OpenAI
-
-- Crie uma API Key da OpenAI.
-- Você vai precisar de um modelo de embeddings e de um modelo de LLM para responder. Consulte a documentação oficial da OpenAI para ver os modelos disponíveis.
-
-## Gemini
-
-- Crie uma API Key da Google.
-- Você vai precisar de um modelo de embeddings e de um modelo de LLM para responder. Consulte a documentação oficial do Google para ver os modelos disponíveis.
-
-Os limites de requisições gratuitas dos modelos podem mudar com frequência. Para informações atualizadas, consulte a documentação oficial do Google.
-
-## Escolha dos modelos
-
-Este desafio não fixa modelos. Nomes e versões mudam com frequência e alguns são descontinuados, então faz parte do desafio consultar a documentação oficial do provedor que você escolher, ver quais modelos estão disponíveis no momento e selecionar os que atendem ao objetivo. Para o volume deste desafio, os modelos mais leves e baratos de cada provedor são suficientes.
-
-Atenção: modelos de embedding diferentes geram vetores com dimensões diferentes. A tabela de vetores é criada na primeira ingestão, já com a dimensão do modelo que você escolheu. Se você trocar de modelo de embeddings depois disso, a ingestão passa a falhar por incompatibilidade de dimensão. Nesse caso é responsabilidade sua apagar a collection existente (ou o volume do banco) e refazer a ingestão do zero com o novo modelo.
-
-## Requisitos
-
-### 1. Ingestão do PDF
-
-- O PDF deve ser dividido em chunks de 1000 caracteres com overlap de 150.
-- Cada chunk deve ser convertido em embedding.
-- Os vetores devem ser armazenados no banco de dados PostgreSQL com pgVector.
-
-### 2. Consulta via CLI
-
-Criar um script Python para simular um chat no terminal.
-
-Passos ao receber uma pergunta:
-
-- Vetorizar a pergunta.
-- Buscar os 10 resultados mais relevantes (k=10) no banco vetorial.
-- Montar o prompt e chamar a LLM.
-- Retornar a resposta ao usuário.
-
-Prompt a ser utilizado:
-
-```
-CONTEXTO:
-{resultados concatenados do banco de dados}
-
-REGRAS:
-- Responda somente com base no CONTEXTO.
-- Se a informação não estiver explicitamente no CONTEXTO, responda:
-  "Não tenho informações necessárias para responder sua pergunta."
-- Nunca invente ou use conhecimento externo.
-- Nunca produza opiniões ou interpretações além do que está escrito.
-
-EXEMPLOS DE PERGUNTAS FORA DO CONTEXTO:
-Pergunta: "Qual é a capital da França?"
-Resposta: "Não tenho informações necessárias para responder sua pergunta."
-
-Pergunta: "Quantos clientes temos em 2024?"
-Resposta: "Não tenho informações necessárias para responder sua pergunta."
-
-Pergunta: "Você acha isso bom ou ruim?"
-Resposta: "Não tenho informações necessárias para responder sua pergunta."
-
-PERGUNTA DO USUÁRIO:
-{pergunta do usuário}
-
-RESPONDA A "PERGUNTA DO USUÁRIO"
-```
-
-## Estrutura obrigatória do projeto
-
-Faça um fork do repositório para utilizar a estrutura abaixo: https://github.com/devfullcycle/mba-ia-desafio-ingestao-busca
-
-```
+```text
 ├── docker-compose.yml
-├── requirements.txt      # Dependências
-├── .env.example          # Template das variáveis de ambiente
+├── requirements.txt    # Dependencies
+├── .env.example        # Environment variables template
 ├── src/
-│   ├── ingest.py         # Script de ingestão do PDF
-│   ├── search.py         # Script de busca
-│   ├── chat.py           # CLI para interação com usuário
-├── document.pdf          # PDF para ingestão
-└── README.md             # Instruções de execução
+│   ├── ingest.py       # Script - Ingest PDF
+│   ├── search.py       # Script - Search
+│   └── chat.py         # CLI for user interaction
+├── document.pdf        # PDF to be used
+└── README.md
 ```
 
-## VirtualEnv para Python
+## Execução
 
-Crie e ative um ambiente virtual antes de instalar dependências:
+Execute os comandos a seguir a partir da raiz do projeto.
 
-```
+### 1. Instalar as dependências
+
+Requisitos: Python 3.10 ou superior, Docker e Docker Compose.
+
+```bash
 python3 -m venv venv
 source venv/bin/activate
+pip install -r requirements.txt
 ```
 
-## Ordem de execução
+No Windows, ative o ambiente com `venv\Scripts\activate`.
 
-1. Subir o banco de dados:
+### 2. Configurar as variáveis de ambiente
 
+Crie o arquivo `.env` a partir do modelo:
+
+```bash
+cp .env.example .env
 ```
+
+Edite `.env` e preencha `GOOGLE_API_KEY` com sua chave do Google AI Studio.
+Não compartilhe esse arquivo nem envie sua chave ao Git.
+
+Esta versão está integrada ao Google Gemini e espera a variável
+`GOOGLE_API_KEY`. Se quiser usar uma chave de outro provedor, atualize o `.env`
+com a variável e as configurações exigidas por esse provedor. Atenção: alterar
+apenas o `.env` não basta; os scripts `src/ingest.py` e `src/search.py` também
+precisam ser adaptados para usar a integração e os modelos desse provedor.
+Para facilitar uma adaptação para OpenAI, o `.env.example` também inclui
+`OPENAI_API_KEY` e `OPENAI_EMBEDDING_MODEL` (com o valor sugerido
+`text-embedding-3-small`). Essas variáveis são apenas um modelo de configuração:
+os scripts atuais não usam OpenAI até que sejam adaptados para isso.
+
+| Variável | Descrição | Valor padrão |
+| --- | --- | --- |
+| `GOOGLE_API_KEY` | Chave para acessar os modelos do Google | Sem valor; obrigatório |
+| `GOOGLE_EMBEDDING_MODEL` | Modelo usado para gerar embeddings | `models/gemini-embedding-001` |
+| `GOOGLE_CHAT_MODEL` | Modelo de linguagem usado para responder | `gemini-3.5-flash-lite` |
+| `OPENAI_API_KEY` | Chave para acessar os modelos da OpenAI (após adaptar a integração) | Sem valor |
+| `OPENAI_EMBEDDING_MODEL` | Modelo de embeddings da OpenAI | `text-embedding-3-small` |
+| `DATABASE_URL` | Endereço de conexão ao PostgreSQL local | `******localhost:5433/rag` |
+| `PG_VECTOR_COLLECTION_NAME` | Nome da coleção vetorial | `pdf_documents` |
+| `PDF_PATH` | Caminho do PDF para ingestão | `document.pdf` |
+
+`PDF_PATH` pode ser absoluto ou relativo à raiz do projeto. PDFs compostos
+apenas por páginas digitalizadas podem precisar de OCR antes da ingestão.
+
+### 3. Iniciar o banco de dados
+
+```bash
 docker compose up -d
+docker compose ps
 ```
 
-2. Executar ingestão do PDF:
+O PostgreSQL fica disponível na porta `5433` da máquina. O Compose inicializa
+a extensão pgvector automaticamente.
 
-```
+### 4. Ingerir o PDF
+
+```bash
 python src/ingest.py
 ```
 
-3. Rodar o chat:
+A ingestão usa `document.pdf` por padrão. Para processar outro arquivo, ajuste
+`PDF_PATH` no `.env`. A primeira execução precisa acessar a API do Google para
+gerar os embeddings.
 
-```
+### 5. Fazer perguntas pelo chat
+
+```bash
 python src/chat.py
 ```
 
-## Entregável
+Digite uma pergunta quando aparecer `PERGUNTA:`. O chat permanece aberto até
+que você digite `sair`, `exit` ou `quit`. Para cada pergunta, o sistema recupera
+até 10 trechos do banco e gera uma resposta baseada neles. Se o contexto não
+contiver a informação necessária, a resposta será
+`Não tenho informações necessárias para responder sua pergunta.`
 
-Repositório público no GitHub contendo todo o código-fonte e README com instruções claras de execução do projeto.
+## Encerrar o banco
+
+Para parar os serviços sem apagar os dados:
+
+```bash
+docker compose down
+```
+
+Os dados ficam no volume `postgres_data`. Não use `docker compose down -v` a
+menos que queira remover também o banco e os dados ingeridos.
+
+## Observação
+
+Os vetores de uma coleção devem ser compatíveis com o modelo de embeddings
+usado para gerá-los. Se trocar `GOOGLE_EMBEDDING_MODEL` por um modelo com outra
+dimensão, remova a coleção ou o volume do banco e faça a ingestão novamente.
